@@ -292,6 +292,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div id="sb-emps">0 employees</div>
       <div id="sb-period" style="font-size:.75rem;color:var(--gray-400)"></div>
     </div>
+    <div style="padding:10px 20px;border-top:1px solid var(--gray-100);margin-top:8px">
+      <button class="btn btn-ghost btn-sm text-danger" style="width:100%;justify-content:center;font-size:.78rem" onclick="clearSavedData()" title="Wipe all saved data and restart">🗑 Clear saved data</button>
+    </div>
   </nav>
 
   <main class="main">
@@ -306,11 +309,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Business / Location Name</label>
-            <input class="form-input" id="biz-name" placeholder="e.g. Main Street Café" oninput="state.schedule.businessName=this.value;updateSidebar();updateHeader()">
+            <input class="form-input" id="biz-name" placeholder="e.g. Main Street Café" oninput="state.schedule.businessName=this.value;updateSidebar();updateHeader();saveState()">
           </div>
           <div class="form-group">
             <label class="form-label">Schedule Start Date <span style="font-size:.75rem;color:var(--gray-400)">(first day of Week 1)</span></label>
-            <input type="date" class="form-input" id="start-date" oninput="state.schedule.startDate=this.value;updateSidebar()">
+            <input type="date" class="form-input" id="start-date" oninput="state.schedule.startDate=this.value;updateSidebar();saveState()">
           </div>
         </div>
       </div>
@@ -321,13 +324,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <div class="form-group">
             <label class="form-label">Default Max Hours / Week per Employee</label>
             <input type="number" class="form-input" id="default-max-hours" value="40" min="1" max="168" placeholder="40"
-              oninput="state.schedule.defaultMaxHours=+this.value">
+              oninput="state.schedule.defaultMaxHours=+this.value;saveState()">
             <div class="form-hint">Can be overridden per employee.</div>
           </div>
           <div class="form-group">
             <label class="form-label">Minimum Rest Between Shifts (hours) <span class="optional">optional</span></label>
             <input type="number" class="form-input" id="min-rest" value="8" min="0" max="24" placeholder="8"
-              oninput="state.schedule.minRestHours=+this.value">
+              oninput="state.schedule.minRestHours=+this.value;saveState()">
             <div class="form-hint">Employees won't be scheduled with less than this gap between shifts on consecutive days.</div>
           </div>
         </div>
@@ -864,7 +867,7 @@ function addShift() {
   const siteId = document.getElementById('sh-site').value || null;
   state.shifts.push({ id:uid(), name, startTime:start, endTime:end, employeesNeeded:count, days, color:state.selectedColor, overnight, siteId });
   document.getElementById('sh-name').value='';
-  renderShiftList(); updateSidebar();
+  renderShiftList(); updateSidebar(); saveState();
   toast('Shift added!','ok');
 }
 
@@ -883,13 +886,13 @@ function addQuickShifts() {
     {name:'Weekend Day',startTime:'09:00',endTime:'17:00',employeesNeeded:2,days:[0,6],color:SHIFT_COLORS[3]},
   ];
   quick.forEach(s=>{ if(!state.shifts.find(x=>x.name===s.name)) state.shifts.push({id:uid(), overnight:isOvernight(s.startTime,s.endTime), ...s}); });
-  renderShiftList(); updateSidebar();
+  renderShiftList(); updateSidebar(); saveState();
   toast('Common shifts added!','ok');
 }
 
 function deleteShift(id) {
   state.shifts = state.shifts.filter(s=>s.id!==id);
-  renderShiftList(); updateSidebar();
+  renderShiftList(); updateSidebar(); saveState();
 }
 
 function renderShiftList() {
@@ -963,19 +966,19 @@ function addEmployeeManual() {
   document.getElementById('emp-name').value='';
   // Uncheck all site boxes for next entry
   document.querySelectorAll('.emp-site-cb').forEach(cb => cb.checked = false);
-  renderAllEmployees(); updateSidebar();
+  renderAllEmployees(); updateSidebar(); saveState();
   toast(name + ' added!','ok');
 }
 
 function deleteEmployee(id) {
   state.employees = state.employees.filter(e=>e.id!==id);
-  renderAllEmployees(); updateSidebar();
+  renderAllEmployees(); updateSidebar(); saveState();
 }
 
 function clearAllEmployees() {
   if(!confirm('Remove all employees?')) return;
   state.employees=[];
-  renderAllEmployees(); updateSidebar();
+  renderAllEmployees(); updateSidebar(); saveState();
 }
 
 function renderAllEmployees() {
@@ -1061,7 +1064,7 @@ function handleCSVUpload(event) {
           state.employees.push({id:uid(), name, maxHoursPerWeek:maxHrs, availability, siteIds});
         added++;
       }
-      renderAllEmployees(); updateSidebar();
+      renderAllEmployees(); updateSidebar(); saveState();
       showCSVPreview();
       toast(`${added} employees imported!`,'ok');
     } catch(err) { toast('Error parsing CSV: '+err.message,'err'); }
@@ -1176,6 +1179,7 @@ function generateSchedule() {
     }
   }
   state.generatedSchedule = {assignments, openShifts, weeklyHours};
+  saveState();
 }
 
 function regenerate() {
@@ -1490,15 +1494,82 @@ function hexToRgba(hex, alpha) {
 // INIT
 // ============================================================
 function init() {
-  document.getElementById('start-date').value = state.schedule.startDate;
-  document.getElementById('default-max-hours').value = state.schedule.defaultMaxHours;
+  const restored = loadState();
+
+  // Populate form fields from state (works for fresh state or restored state)
+  document.getElementById('biz-name').value           = state.schedule.businessName || '';
+  document.getElementById('start-date').value         = state.schedule.startDate;
+  document.getElementById('default-max-hours').value  = state.schedule.defaultMaxHours;
+  document.getElementById('min-rest').value           = state.schedule.minRestHours;
+
   initShiftForm();
   initSiteColorRow();
   initAvailTable();
+
+  if (restored) {
+    renderSiteList();
+    updateSiteSelectors();
+    renderShiftList();
+    renderAllEmployees();
+    updateHeader();
+    // If a schedule was saved, allow direct nav to step 4
+    if (state.generatedSchedule) {
+      for (let i = 1; i <= 4; i++) document.getElementById('nav-' + i).classList.add('done');
+    }
+    const n = state.employees.length, s = state.shifts.length, si = state.sites.length;
+    toast(`Session restored — ${n} employee${n!==1?'s':''}, ${s} shift${s!==1?'s':''}${si?' across '+si+' site'+(si!==1?'s':''):''}. 💾`, 'ok');
+  }
+
   updateSidebar();
 }
 
 init();
+
+// ============================================================
+// PERSISTENCE (localStorage)
+// ============================================================
+
+const STORAGE_KEY = 'shiftsync_v1';
+
+function saveState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      idSeq,
+      schedule:          state.schedule,
+      sites:             state.sites,
+      shifts:            state.shifts,
+      employees:         state.employees,
+      generatedSchedule: state.generatedSchedule
+    }));
+  } catch(e) {
+    // localStorage may be unavailable (private browsing quota exceeded, etc.)
+    console.warn('ShiftSync: could not save to localStorage', e);
+  }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (data.idSeq)             idSeq = data.idSeq;
+    if (data.schedule)          Object.assign(state.schedule, data.schedule);
+    if (data.sites)             state.sites = data.sites;
+    if (data.shifts)            state.shifts = data.shifts;
+    if (data.employees)         state.employees = data.employees;
+    if (data.generatedSchedule) state.generatedSchedule = data.generatedSchedule;
+    return true;
+  } catch(e) {
+    console.warn('ShiftSync: could not load from localStorage', e);
+    return false;
+  }
+}
+
+function clearSavedData() {
+  if (!confirm('Clear all saved data and start fresh? This cannot be undone.')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  location.reload();
+}
 
 // ============================================================
 // SITE MANAGEMENT
@@ -1529,7 +1600,7 @@ function addSite() {
   document.getElementById('site-address').value='';
   renderSiteList();
   updateSiteSelectors();
-  updateSidebar();
+  updateSidebar(); saveState();
   toast(`Site "${name}" added!`,'ok');
 }
 
@@ -1547,7 +1618,7 @@ function deleteSite(id) {
   renderSiteList();
   updateSiteSelectors();
   renderAllEmployees();
-  updateSidebar();
+  updateSidebar(); saveState();
   toast(`Site removed.`);
 }
 
@@ -2010,6 +2081,7 @@ function importDocEmployees() {
     `<div class="import-result-row ${r.status}">${r.status==='ok'?'✅':r.status==='skip'?'⏭':'❌'} ${esc(r.msg)}</div>`
   ).join('');
 
+  if (added > 0) saveState();
   toast(`${added} imported, ${skipped} skipped.`, added > 0 ? 'ok' : '');
 }
 
